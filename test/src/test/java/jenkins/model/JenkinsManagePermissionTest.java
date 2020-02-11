@@ -4,6 +4,7 @@ import com.gargoylesoftware.htmlunit.html.HtmlForm;
 import com.gargoylesoftware.htmlunit.html.HtmlPage;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.BeforeClass;
 import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.MockAuthorizationStrategy;
@@ -13,6 +14,7 @@ import hudson.PluginWrapper;
 import hudson.cli.CLICommandInvoker;
 import hudson.cli.DisablePluginCommand;
 import hudson.model.Descriptor;
+import hudson.model.UpdateCenter;
 import hudson.model.labels.LabelAtom;
 import hudson.tasks.Shell;
 
@@ -23,8 +25,12 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.*;
+
+import java.net.InetSocketAddress;
 
 import static hudson.cli.CLICommandInvoker.Matcher.failedWith;
+import static hudson.cli.CLICommandInvoker.Matcher.succeeded;
 
 /**
  * As Jenkins.MANAGE can be enabled on startup with jenkins.security.ManagePermission property, we need a test class
@@ -35,10 +41,51 @@ public class JenkinsManagePermissionTest {
     @Rule
     public JenkinsRule j = new JenkinsRule();
 
-    static {
-        // this happens before the Jenkins static fields are loaded
+    @BeforeClass
+    public static void setupClass() {
         System.setProperty("jenkins.security.ManagePermission", "true");
     }
+
+    @Issue("JENKINS-60266")
+    @Test
+    public void managePermissionIsEnabled() {
+    	assertTrue("Jenkins.MANAGE should be enabled", Jenkins.MANAGE.getEnabled());
+    }
+
+    // ---------------------------
+    // Moved from src/test/java/hudson/cli/InstallPluginCommandTest.java
+    private void setupUpdateCenter() {
+        try {
+            j.jenkins.getUpdateCenter().getSite(UpdateCenter.ID_DEFAULT).updateDirectlyNow(false);
+        } catch (Exception x) {
+            assumeNoException(x);
+        }
+        InetSocketAddress address = new InetSocketAddress("updates.jenkins-ci.org", 80);
+        assumeFalse("Unable to resolve updates.jenkins-ci.org. Skip test.", address.isUnresolved());
+    }
+
+    @Issue("JENKINS-60266")
+    @Test
+    public void configuratorCanNotInstallPlugin() throws Exception {
+        //Setup update center and authorization
+        setupUpdateCenter();
+        j.jenkins.setSecurityRealm(j.createDummySecurityRealm());
+        j.jenkins.setAuthorizationStrategy(new MockAuthorizationStrategy().grant(Jenkins.ADMINISTER).everywhere().to(
+                "admin").grant(Jenkins.MANAGE).everywhere().to("configurator"));
+
+        String plugin = "git";
+
+        assertThat("User with Jenkins.MANAGE permission shouldn't be able to install a plugin fro an UC",
+                   new CLICommandInvoker(j, "install-plugin").asUser("configurator").invokeWithArgs(plugin),
+                   failedWith(6));
+
+        assertThat("Admin should be able to install a plugin from an UC",
+                   new CLICommandInvoker(j, "install-plugin").asUser("admin").invokeWithArgs(plugin),
+                   succeeded());
+    }
+    // End of Moved from src/test/java/hudson/cli/InstallPluginCommandWithManageTest.java
+    // -------------------------
+
 
     // -------------------------
     // Moved from hudson/model/labels/LabelAtomPropertyTest.java
