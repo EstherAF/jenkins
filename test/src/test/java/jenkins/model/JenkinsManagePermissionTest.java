@@ -1,7 +1,12 @@
 package jenkins.model;
 
+import com.gargoylesoftware.htmlunit.WebResponse;
 import com.gargoylesoftware.htmlunit.html.HtmlForm;
 import com.gargoylesoftware.htmlunit.html.HtmlPage;
+import org.hamcrest.Description;
+import org.hamcrest.Matcher;
+import org.hamcrest.TypeSafeDiagnosingMatcher;
+import org.hamcrest.TypeSafeMatcher;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.BeforeClass;
@@ -107,7 +112,9 @@ public class JenkinsManagePermissionTest {
         labelConfigForm.getTextAreaByName("description").setText("example description");
         j.submit(labelConfigForm);
 
-        assertEquals("example description",label.getDescription());
+        String description = label.getDescription();
+        assertThat("Label description", description, notNullValue());
+        assertEquals("Label description", description);
     }
 
     /**
@@ -137,7 +144,8 @@ public class JenkinsManagePermissionTest {
         j.jenkins.setAuthorizationStrategy(new MockAuthorizationStrategy()
                                                    .grant(Jenkins.READ).everywhere().to(UNAUTHORIZED));
         HtmlPage submitted = j.submit(labelConfigForm);
-        assertEquals(403, submitted.getWebResponse().getStatusCode());
+        assertThat("User with Jenkins.READ should not be authorized to make changes",
+                   submitted.getWebResponse(), hasStatusCode(403));
     }
     // End of Moved from hudson/model/labels/LabelAtomPropertyTest.java
     //-------
@@ -254,8 +262,9 @@ public class JenkinsManagePermissionTest {
 
         HtmlForm form = j.createWebClient().goTo("configure").getFormByName("config");
         HtmlPage updated = j.submit(form);
-        assertEquals("User with Jenkins.MANAGE permission should be able to update global configuration",
-                     200, updated.getWebResponse().getStatusCode());
+
+        assertThat("User with Jenkins.MANAGE permission should be able to update global configuration",
+                     updated.getWebResponse(), hasStatusCode(200));
     }
 
     private String getShell() {
@@ -265,4 +274,34 @@ public class JenkinsManagePermissionTest {
 
     // End of Moved from HusdonTest
     //-------
+
+    private Matcher<WebResponse> hasStatusCode(int statusCode) {
+
+        return new TypeSafeDiagnosingMatcher<WebResponse>() {
+
+            @Override
+            public void describeTo(Description description) {
+                description.appendText("web response with status code " + statusCode);
+            }
+
+            @Override
+            protected boolean matchesSafely(WebResponse response, Description mismatchDescription) {
+                if(response == null) {
+                    mismatchDescription.appendText("web response is null");
+                    return false;
+                }
+
+                if(response.getStatusCode() != statusCode){
+                    mismatchDescription.appendText("was").appendValue(response.getStatusCode())
+                                       .appendText(" ").appendValue(response.getStatusMessage())
+                                       .appendText("\n with headers ").appendValueList("", "\n    ", "",response.getResponseHeaders())
+                                       .appendText("\n with content ").appendValue(response.getContentAsString());
+                    return false;
+                }
+
+                return true;
+            }
+        };
+    }
+
 }
