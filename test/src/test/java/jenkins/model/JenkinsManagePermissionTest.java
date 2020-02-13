@@ -4,6 +4,8 @@ import java.net.HttpURLConnection;
 
 import com.gargoylesoftware.htmlunit.ElementNotFoundException;
 import com.gargoylesoftware.htmlunit.WebResponse;
+import com.gargoylesoftware.htmlunit.html.DomNode;
+import com.gargoylesoftware.htmlunit.html.DomNodeList;
 import com.gargoylesoftware.htmlunit.html.HtmlForm;
 import com.gargoylesoftware.htmlunit.html.HtmlInput;
 import com.gargoylesoftware.htmlunit.html.HtmlPage;
@@ -273,6 +275,30 @@ public class JenkinsManagePermissionTest {
 
     // End of Moved from HusdonTest
     //-------
+
+    @Issue("JENKINS-60266")
+    @Test
+    public void globalNodePropertiesAreShownToAdmin() throws Exception {
+        setPermissionToEveryone(Jenkins.ADMINISTER);
+        HtmlForm form = j.createWebClient().goTo("configure").getFormByName("config");
+
+        DomNode input = form.querySelector("[name=\"globalNodeProperties\"]");
+        assertNotNull("_.globalNodeProperties input is displayed to Admin", input);
+    }
+
+    @Issue("JENKINS-60266")
+    @Test
+    public void globalNodePropertiesAreNotShownToManage() throws Exception{
+        setPermissionToEveryone(Jenkins.MANAGE);
+        HtmlForm form = j.createWebClient().goTo("configure").getFormByName("config");
+
+        try {
+            DomNode input = form.querySelector("[name=\"globalNodeProperties\"]");
+            assertNull("_.globalNodeProperties input is NOT displayed to Manage", input);
+        } catch (ElementNotFoundException ex) {
+
+        }
+    }
 
     @Issue("JENKINS-60266")
     @Test
