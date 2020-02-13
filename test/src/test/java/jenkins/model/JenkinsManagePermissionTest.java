@@ -1,12 +1,16 @@
 package jenkins.model;
 
 import java.net.HttpURLConnection;
+
+import com.gargoylesoftware.htmlunit.ElementNotFoundException;
 import com.gargoylesoftware.htmlunit.WebResponse;
 import com.gargoylesoftware.htmlunit.html.HtmlForm;
+import com.gargoylesoftware.htmlunit.html.HtmlInput;
 import com.gargoylesoftware.htmlunit.html.HtmlPage;
 import org.hamcrest.BaseMatcher;
 import org.hamcrest.Description;
 import org.hamcrest.Matcher;
+import org.jenkinsci.Symbol;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -14,13 +18,21 @@ import org.junit.Test;
 import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.MockAuthorizationStrategy;
+import org.jvnet.hudson.test.TestExtension;
 import org.jvnet.hudson.test.recipes.WithPlugin;
+import org.kohsuke.stapler.StaplerRequest;
 
+import net.sf.json.JSONObject;
+
+import hudson.Extension;
+import hudson.ExtensionPoint;
 import hudson.PluginWrapper;
 import hudson.cli.CLICommandInvoker;
 import hudson.cli.DisablePluginCommand;
+import hudson.model.Describable;
 import hudson.model.Descriptor;
 import hudson.model.labels.LabelAtom;
+import hudson.security.Permission;
 import hudson.tasks.Shell;
 
 import static org.hamcrest.Matchers.containsString;
@@ -28,8 +40,13 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import static hudson.cli.CLICommandInvoker.Matcher.failedWith;
 
@@ -50,6 +67,12 @@ public class JenkinsManagePermissionTest {
     @AfterClass //TODO: remove once Jenkins.MANAGE is no longer an experimental feature
     public static void disableManagePermission() {
         System.clearProperty("jenkins.security.ManagePermission");
+    }
+
+
+    @Test
+    public void testFeatureHasBeenEnabled(){
+        assertTrue("Manage permission is enabled", Jenkins.MANAGE.getEnabled());
     }
 
     // -------------------------
@@ -173,9 +196,7 @@ public class JenkinsManagePermissionTest {
     @Test
     public void someGlobalConfigurationIsNotDisplayedWithManagePermission() throws Exception {
         //GIVEN a user with Jenkins.MANAGE permission
-        j.jenkins.setSecurityRealm(j.createDummySecurityRealm());
-        j.jenkins.setAuthorizationStrategy(new MockAuthorizationStrategy()
-                                                   .grant(Jenkins.MANAGE, Jenkins.READ).everywhere().toEveryone());
+        setPermissionToEveryone(Jenkins.MANAGE);
 
         //WHEN the user goes to /configure page
         HtmlForm form = j.createWebClient().goTo("configure").getFormByName("config");
@@ -201,9 +222,7 @@ public class JenkinsManagePermissionTest {
         form.getInputByName("_.shell").setValueAttribute("/fakeShell");
 
         // WHEN a user with Jenkins.MANAGE permission only try to save those changes
-        j.jenkins.setSecurityRealm(j.createDummySecurityRealm());
-        j.jenkins.setAuthorizationStrategy(new MockAuthorizationStrategy()
-                                                   .grant(Jenkins.MANAGE, Jenkins.READ).everywhere().toEveryone());
+        setPermissionToEveryone(Jenkins.MANAGE);
         j.submit(form);
         // THEN the changes on fields forbidden to a Jenkins.MANAGE permission are not saved
         assertEquals("shouldn't be allowed to change the number of executors", currentNumberExecutors, j.getInstance().getNumExecutors());
@@ -213,9 +232,7 @@ public class JenkinsManagePermissionTest {
     @Issue("JENKINS-60266")
     @Test
     public void globalConfigAllowedWithManagePermission() throws Exception {
-        j.jenkins.setSecurityRealm(j.createDummySecurityRealm());
-        j.jenkins.setAuthorizationStrategy(new MockAuthorizationStrategy()
-                                                   .grant(Jenkins.MANAGE, Jenkins.READ).everywhere().toEveryone());
+        setPermissionToEveryone(Jenkins.MANAGE);
 
         HtmlForm form = j.createWebClient().goTo("configure").getFormByName("config");
         HtmlPage updated = j.submit(form);
@@ -256,4 +273,131 @@ public class JenkinsManagePermissionTest {
 
     // End of Moved from HusdonTest
     //-------
+
+    @Issue("JENKINS-60266")
+    @Test
+    public void testGlobalConfigDescriptor_withManagePermission_NotDisplayedByDefault() throws Exception {
+        // WHEN a user with Jenkins.MANAGE permission render the config form
+        setPermissionToEveryone(Jenkins.MANAGE);
+        HtmlForm form = j.createWebClient().goTo("configure").getFormByName("config");
+
+        //THEN the field is NOT displayed
+        //This case is authorized only to Administer by default
+        try {
+            HtmlInput input = form.getInputByName("_.globalExampleInput");
+            assertNull("_.globalExampleInput input should not be displayed with Manage permission", input);
+        } catch (ElementNotFoundException ex) {
+            //good, not found is what we expect
+        }
+    }
+
+    @Issue("JENKINS-60266")
+    @Test
+    public void testConfigDescriptor_withManagePermission_DisplayedByDefault() throws Exception{
+        // WHEN a user with Jenkins.MANAGE permission render the config form
+        setPermissionToEveryone(Jenkins.MANAGE);
+        HtmlForm form = j.createWebClient().goTo("configure").getFormByName("config");
+
+        //THEN the field is displayed
+        //This case is not restricted against user with Manage by default
+        HtmlInput input = form.getInputByName("_.exampleInput");
+        assertNotNull("_.exampleInput input is displayed with Manage permission", input);
+    }
+
+    @Issue("JENKINS-60266")
+    @Test
+    public void testGlobalConfigDescriptor_withManagePermission_CanNotBeModifiedByDefault() throws Exception {
+        // WHEN a user with Jenkins.MANAGE permission try to save the changes
+
+        //the form is rendered with Administer permission, to get a form with all the fields
+        setPermissionToEveryone(Jenkins.ADMINISTER);
+        assertNull("default input value", GlobalConfigurationTestDescriptor.getInputValue());
+        HtmlForm form = j.createWebClient().goTo("configure").getFormByName("config");
+        setInputValue(form, "_.globalExampleInput", "blabla");
+
+        //removes the permission: this simulates a user editting the form or generating a custom POST without permission
+        setPermissionToEveryone(Jenkins.MANAGE);
+        HtmlPage page = j.submit(form);
+        //The submission is accepted
+        j.assertGoodStatus(page);
+
+        //THEN the changes are NOT saved.
+        //This case is authorized only to Administer by default
+        assertNotEquals("value has been setted", GlobalConfigurationTestDescriptor.getInputValue(), "blabla");
+    }
+
+    @Issue("JENKINS-60266")
+    @Test
+    public void testConfigDescriptor_withManagePermission_CanBeModifiedByDefault() throws Exception{
+        // WHEN a user with Jenkins.MANAGE permission only try to save the changes
+
+        //the form is rendered with Administer permission, to get a form with all the fields
+        setPermissionToEveryone(Jenkins.ADMINISTER);
+        assertNull("default input value", TestDescriptor.getInputValue());
+        HtmlForm form = j.createWebClient().goTo("configure").getFormByName("config");
+        setInputValue(form, "_.exampleInput", "blebleble");
+
+        //removes the permission: this simulates a user editting the form or generating a custom POST without permission
+        setPermissionToEveryone(Jenkins.MANAGE);
+        HtmlPage page = j.submit(form);
+        //The submission is accepted
+        j.assertGoodStatus(page);
+
+        //THEN the changes are saved.
+        //This case is not restricted against user with Manage by default
+        assertEquals("Value has been setted", TestDescriptor.getInputValue(), "blebleble");
+    }
+
+    @TestExtension({"testGlobalConfigDescriptor_withManagePermission_CanNotBeModifiedByDefault",
+                    "testGlobalConfigDescriptor_withManagePermission_NotDisplayedByDefault"})
+    @Extension(ordinal=300) @Symbol("globalConfigurationTestDescriptor")
+    public static final class GlobalConfigurationTestDescriptor extends GlobalConfiguration {
+        private String exampleInput;
+        public String getExampleInput() { return exampleInput; }
+        public void setExampleInput(String exampleInput) { this.exampleInput = exampleInput; }
+        static String getInputValue(){
+            GlobalConfigurationTestDescriptor inputNonGlobalDescriptor = Jenkins.getInstance().getDescriptorByType(
+                    GlobalConfigurationTestDescriptor.class);
+            return inputNonGlobalDescriptor.getExampleInput();
+        }
+    }
+
+    @TestExtension({"testConfigDescriptor_withManagePermission_CanBeModifiedByDefault",
+                    "testConfigDescriptor_withManagePermission_DisplayedByDefault"})
+    @Extension(ordinal=301) @Symbol("testDescriptor")
+    public static class TestDescriptor extends Descriptor<TestDescriptor>
+            implements ExtensionPoint, Describable<TestDescriptor>  {
+
+        private String exampleInput;
+        public TestDescriptor() {
+            super(self());
+        }
+        public String getExampleInput() { return exampleInput; }
+        public final Descriptor<TestDescriptor> getDescriptor() {
+            return this;
+        }
+        @Override
+        public boolean configure(StaplerRequest req, JSONObject json) {
+            this.exampleInput = json.getString("exampleInput");
+            return true;
+        }
+
+        static String getInputValue(){
+            TestDescriptor inputNonGlobalDescriptor =
+                    Jenkins.getInstanceOrNull().getDescriptorByType(TestDescriptor.class);
+            return inputNonGlobalDescriptor.exampleInput;
+        }
+    }
+
+    private void setInputValue(HtmlForm form, String inputName, String value)  {
+        HtmlInput input = form.getInputByName(inputName);
+        assertNotNull(inputName, input);
+        input.setValueAttribute(value);
+    }
+
+    private void setPermissionToEveryone(Permission administer) {
+        j.jenkins.setSecurityRealm(j.createDummySecurityRealm());
+        j.jenkins.setAuthorizationStrategy(new MockAuthorizationStrategy().grant(administer, Jenkins.READ).everywhere().toEveryone());
+    }
+
 }
