@@ -54,8 +54,6 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.annotation.CheckForNull;
 
-import net.sf.json.JSONObject;
-
 import static jenkins.security.ResourceDomainFilter.ERROR_RESPONSE;
 
 /**
@@ -189,14 +187,6 @@ public final class ResourceDomainConfiguration extends GlobalConfiguration {
     @CheckForNull
     public String getUrl() {
         return url;
-    }
-
-    @Override
-    public boolean configure(StaplerRequest req, JSONObject json) throws FormException {
-        if(Jenkins.get().hasPermission(Jenkins.ADMINISTER)) {
-            return super.configure(req, json);
-        }
-        return true;
     }
 
     public void setUrl(@CheckForNull String url) {
