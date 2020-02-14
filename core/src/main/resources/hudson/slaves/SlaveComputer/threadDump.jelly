@@ -33,13 +33,13 @@ THE SOFTWARE.
     <st:include page="sidepanel.jelly" />
 
     <l:main-panel>
-      <j:if test="${h.hasPermission(app.MANAGE)}">
+      <l:isAdmin>
         <h1>${%Thread Dump}</h1>
         <j:forEach var="t" items="${it.getThreadDump().entrySet()}">
           <h2>${t.key}</h2>
           <pre>${t.value}</pre>
         </j:forEach>
-      </j:if>
+      </l:isAdmin>
     </l:main-panel>
   </l:layout>
 </j:jelly>
