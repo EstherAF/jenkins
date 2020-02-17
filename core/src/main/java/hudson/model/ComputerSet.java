@@ -204,7 +204,7 @@ public final class ComputerSet extends AbstractModelObject implements Describabl
 
     @RequirePOST
     public void do_launchAll(StaplerRequest req, StaplerResponse rsp) throws IOException {
-        Jenkins.get().checkPermission(Jenkins.MANAGE);
+        Jenkins.get().checkPermission(Jenkins.ADMINISTER);
 
         for(Computer c : get_all()) {
             if(c.isLaunchSupported())

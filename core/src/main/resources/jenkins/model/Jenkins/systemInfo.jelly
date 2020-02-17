@@ -59,8 +59,10 @@ THE SOFTWARE.
             </j:otherwise>
           </j:choose>
         </table>
-        <h1>${%Thread Dumps}</h1>
-        <p>${%threadDump_blurb('threadDump')}</p>
+        <j:if test="${h.hasPermission(app.ADMINISTER)}">
+            <h1>${%Thread Dumps}</h1>
+            <p>${%threadDump_blurb('threadDump')}</p>
+        </j:if>
     </l:main-panel>
   </l:layout>
 </j:jelly>
